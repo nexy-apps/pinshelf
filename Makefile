@@ -6,6 +6,8 @@ INSTALL_BUILT_APP := $(DERIVED_DATA)/Build/Products/Install/Pinshelf.app
 # 開発のビルド（make build・run・install）の ID。make stop が、配る版を止めないよう、この ID のアプリだけを終了する。
 # ID と画面の名前は project.yml の Debug・Install で決めている（変えるときは、ここも合わせる。決まりは共通のノート「Pinシリーズの決まり」の 3 の節）
 DEV_BUNDLE_ID := app.nexy.Pinshelf.dev
+# Pinshelf Dev が動いているか（シェルの条件に使う。動いていれば成功）
+DEV_RUNNING = lsappinfo find bundleid=$(DEV_BUNDLE_ID) 2>/dev/null | grep -q .
 # 開発のビルドを置く場所（make run・make install のどちらも、ビルドしたものをここの「Pinshelf Dev.app」に写して置き換える）。
 # 開発版のアプリをいつも 1 つにし、許可の一覧（ファイルの名前が出る）や Spotlight で、配る版の Pinshelf.app と見分けられるようにする。
 # 同じ ID のアプリが 2 か所にあると、どちらが開くか・どちらに許可を与えたかが分かりにくいので、Launch Services にはここだけを登録する。
@@ -46,7 +48,9 @@ RELEASE_SIGN_IDENTITY = $(or $(shell sed -n 's/^ *CODE_SIGN_IDENTITY: *\([0-9A-F
 # 金庫の中の、更新ファイルに署名する鍵のアカウント名（Sparkle の道具に渡す）
 SPARKLE_ACCOUNT := nexy-release
 # Launch Services（アプリの場所とアイコンを覚えている macOS の仕組み）に、アプリを登録し直す道具。
-# アイコンを変えたあとも Finder・Dock が前のアイコン（アイコンを入れる前の仮のもの）を出し続けないよう、起動・インストールの前に使う
+# make run・make install はアプリを DEV_APP にファイルごとに写すので、写している途中（署名のファイルがまだない）のアプリを macOS が先に見つけて、
+# 「開けないアプリ」（アイコンに 🚫 の印）と覚えることがある。写し終えてから登録し直して、正しい状態に替える。
+# アイコンを変えたあとも、Finder・Dock が前のアイコン（アイコンを入れる前の仮のもの）を出し続けないようにする役目もある
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 # $(call register_app,アプリの場所): アプリを Launch Services に登録し直す（失敗しても止めない）
 register_app = touch "$(1)"; $(LSREGISTER) -f "$(1)" >/dev/null 2>&1 || true
@@ -235,10 +239,10 @@ stop:
 	if [ -z "$$pids" ]; then echo "動いている Pinshelf Dev はありません（配る版の Pinshelf は止めません）"; exit 0; fi; \
 	echo "Pinshelf Dev を終了します（pid$$pids。配る版の Pinshelf は止めません）"; \
 	kill $$pids 2>/dev/null; \
-	for i in $$(seq 1 80); do lsappinfo find bundleid=$(DEV_BUNDLE_ID) 2>/dev/null | grep -q . || exit 0; sleep 0.1; done; \
+	for i in $$(seq 1 80); do $(DEV_RUNNING) || exit 0; sleep 0.1; done; \
 	echo "8 秒たっても終了しないので、強制終了します（pid$$pids）"; \
 	kill -9 $$pids 2>/dev/null; \
-	for i in $$(seq 1 30); do lsappinfo find bundleid=$(DEV_BUNDLE_ID) 2>/dev/null | grep -q . || exit 0; sleep 0.1; done; \
+	for i in $$(seq 1 30); do $(DEV_RUNNING) || exit 0; sleep 0.1; done; \
 	echo "Pinshelf Dev を終了できませんでした。アクティビティモニタで終了してから、もう一度流してください" >&2
 
 # 配る版と同じ作り（project.yml の Install）でビルドし、make run と同じ DEV_APP に置き換える（起動はしない）。
