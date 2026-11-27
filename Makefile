@@ -64,7 +64,9 @@ SPARKLE_STAMP := $(SPARKLE_DIR)/.version-$(SPARKLE_VERSION)
 # （最初の 1 行だけ読む。Debug・Install の空の値は読まない。make publish でだけ使うので、使うときに読む）
 UPDATE_PUBLIC_KEY = $(shell sed -n '/^ *PINSHELF_UPDATE_PUBLIC_KEY: *"\(.*\)"/{s//\1/p;q;}' project.yml)
 # 配る更新ファイル（zip）を置く場所。版の一覧（appcast.xml）の中のダウンロード元になる
-RELEASE_DOWNLOAD_URL := https://github.com/nexy-apps/pinshelf/releases/download/v$(RELEASE_NAME)/
+# Release を作るリポジトリ（手元には写しの yzanbo などほかの送り先もあるので、gh にはいつもこれを渡す）
+GITHUB_REPO := nexy-apps/pinshelf
+RELEASE_DOWNLOAD_URL := https://github.com/$(GITHUB_REPO)/releases/download/v$(RELEASE_NAME)/
 # 版の一覧（appcast.xml）を置く場所。組織 nexy-apps の GitHub Pages（https://nexy-apps.github.io/pinshelf/appcast.xml）。
 # アプリのリポジトリには置かない（make publish が、置き場所のリポジトリに書き込んで送る）
 APPCAST_REPO := https://github.com/nexy-apps/nexy-apps.github.io.git
@@ -179,7 +181,7 @@ publish-in-vault:
 	( $(if $(BETA),cat scripts/release-notes-beta.md; echo;) cat scripts/release-changes.md; echo; cat scripts/release-notes.md ) > dist/release-notes.md
 	mkdir -p "$(dir $(APPCAST_SITE)/$(APPCAST_FILE))"
 	SPARKLE_ACCOUNT="$(SPARKLE_ACCOUNT)" ./scripts/make-appcast.sh "$(DIST_ZIP)" scripts/release-changes.md "$(RELEASE_DOWNLOAD_URL)" "$(APPCAST_SITE)/$(APPCAST_FILE)"
-	gh release create "v$(RELEASE_NAME)" "$(DIST_DMG)" "$(DIST_ZIP)" "$(DIST_BASE).sha256" \
+	gh release create "v$(RELEASE_NAME)" "$(DIST_DMG)" "$(DIST_ZIP)" "$(DIST_BASE).sha256" --repo "$(GITHUB_REPO)" \
 		--target main --title "Pinshelf $(RELEASE_NAME)$(if $(BETA), (β 版))" $(if $(BETA),--prerelease) \
 		--notes-file dist/release-notes.md
 	git -C "$(APPCAST_SITE)" add "$(APPCAST_FILE)"

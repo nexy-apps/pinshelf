@@ -216,7 +216,7 @@ Pinshot と同じ決まりにしている。
 - 出すたびに、版とビルド番号を上げ、`scripts/release-changes.md`（この版の変更）を書き直す
 - `make publish BETA=1` で β 版としてプレリリースにする（タグは `v<版>-beta.1`。説明の先頭に `scripts/release-notes-beta.md` の注意が付く）。正式版は `BETA` を付けずに `make publish`
 - リリースの説明は「この版の変更」＋「ダウンロードと開き方」（`scripts/release-notes.md`）をつなげたもの。`make publish` は GitHub CLI（`gh`）で Release を作る
-- `make publish` は、先にコミット済みで GitHub の main と同じか・タグがまだないかを確かめ（`scripts/publish-check.sh git`）、金庫を開けてから、金庫の更新の鍵が `project.yml` の公開鍵と合うかを確かめる（`publish-check.sh key`）。そろっていなければ何も作らずに止まる。そのあと、DMG と zip を作り、版の一覧の置き場所のリポジトリを `build/appcast-site` に取り寄せて `pinshelf/appcast.xml` を作り直し、Release を作ってから、版の一覧をコミットしてプッシュする
+- `make publish` は、先にコミット済みで GitHub の main と同じか・タグがまだないかを確かめ（`scripts/publish-check.sh git`）、金庫を開けてから、金庫の更新の鍵が `project.yml` の公開鍵と合うかを確かめる（`publish-check.sh key`）。そろっていなければ何も作らずに止まる。そのあと、DMG と zip を作り、`build/appcast-site`（金庫を開ける前に取り寄せておいた版の一覧の置き場所）の `pinshelf/appcast.xml` を作り直し、Release を作ってから、版の一覧をコミットしてプッシュする。版の一覧に署名するとき、Mac が画面で金庫のパスワードをもう一度聞く（金庫は開いているが、更新の鍵を確認なしに使ってよい道具に `generate_appcast` が入っていないため。「許可」で進める）。Release は `gh` に `--repo nexy-apps/pinshelf` を渡して作る（手元には写しの `yzanbo` など、送り先がほかにもあるため）
 - 更新ファイルの署名の鍵（EdDSA）は Pin シリーズで共通の 1 本で、作者が `scripts/create-nexy-keys.sh` で一度だけ作った（金庫の中）。失くすと更新を届けられなくなるので、控えを Mac の外に保管してある（決まりは共通のノート「Pinシリーズの決まり」）
 - テストは手元だけで流す（GitHub Actions では流さない）。`make setup` で git hooks（`.githooks/pre-push`）を有効にすると、push の前に `make test` が流れ、失敗したら push を止める
 - DMG は、使える macOS では `diskutil image create` で作る（`hdiutil create` は macOS 26 で「使わなくなる」と警告が出るため）
