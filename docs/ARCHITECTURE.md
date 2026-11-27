@@ -69,16 +69,17 @@ PinshelfCore/       画面に依存しないロジック（Swift パッケージ
 
 scripts/
 ├── make-app-icon.swift      アプリのアイコンと 1 色の印をコードで描いて、Assets.xcassets に書き出す（make icon）
-├── create-dev-cert.sh       開発用の署名の証明書「Pinshelf Dev」を作る（make cert）
-├── update-key.sh            更新ファイルの署名の鍵（EdDSA）を用意して、公開鍵を project.yml に書き込む（make update-key）
+├── create-signing-cert.sh   開発用の証明書（nexy Dev Signing）をログインキーチェーンに作る（make cert）
+├── create-nexy-keys.sh      配る版用の証明書・更新の鍵・それを入れる金庫を作る（作者が 1 回だけ。Pin シリーズで共通）
+├── vault.sh                 金庫を開けてコマンドを流し、必ず閉める（make dist・make publish）
+├── signing-check.sh         配る版用の証明書が使えるか・アプリがその証明書で署名されたかを、指紋（SHA-1）で確かめる（make dist）
 ├── make-appcast.sh          更新ファイル（zip）に署名して、版の一覧（appcast.xml）を作る（make publish・make update-test）
-├── publish-check.sh         公開の前に、鍵と Git の状態を確かめる（make publish）
+├── publish-check.sh         公開の前に、Git の状態と更新の鍵を確かめる（make publish）
 ├── update-test.sh           更新を手元で通しで試す準備をする（make update-test。update-test-key.swift は、その試験用の鍵を作る）
 ├── update-test-log.sh       更新の試験のあいだの macOS の記録を書き出す（make update-test-log）
 ├── readme-images/           README の見本の画像を作る（make readme-images。棚・帯はアプリと同じ部品で実際に出して写し、架空のデスクトップに並べる）
 └── release-*.md             リリースの説明（β 版の注意・この版の変更・ダウンロードと開き方。make publish がつなげる）
 
-appcast.xml         版の一覧（入れてもらったアプリが、ここを見て新しい版を知る。make publish が作り直す）
 Vendor/Sparkle/     更新の仕組み（Sparkle）の配布物。make が取り寄せるので、リポジトリには入れない
 project.yml         XcodeGen の設定（Pinshelf.xcodeproj はここから作るので、リポジトリには入れない）
 Makefile            ビルド・起動・テスト・インストール・配布（README の「開発するとき」）
@@ -123,7 +124,7 @@ Makefile            ビルド・起動・テスト・インストール・配布
 
 ### 保存
 
-- 棚の中身は `~/Library/Containers/app.pinshelf.Pinshelf/Data/Library/Application Support/Pinshelf/shelves.json` に保存する（サンドボックスのコンテナの中）
+- 棚の中身は `~/Library/Containers/app.nexy.Pinshelf/Data/Library/Application Support/Pinshelf/shelves.json` に保存する（サンドボックスのコンテナの中）
 - ファイルは security-scoped bookmark で覚えるので、再起動後も開け、移動・名前の変更にも追従する。ドロップで受け取ったファイルには今だけアクセスできるので、受け取ったらすぐブックマークにする
 - 中身が変わったら 0.5 秒後にまとめて保存し、終了するときにも保存する。`make run`・`make stop` の `killall`（SIGTERM）も受けて、ふつうに終了する
 - 保存ファイルが壊れていたら `shelves.broken-<時刻>.json` に移して、空の状態で始める
@@ -165,10 +166,24 @@ Makefile            ビルド・起動・テスト・インストール・配布
 
 ### 署名
 
-- macOS は、アプリが同じものかを署名で見分ける。アドホック署名は、ビルドし直すたびに署名が変わる。`make cert` で作る自己署名の証明書「Pinshelf Dev」で署名すると、ビルドし直しても同じ署名になる（Pinshot と同じ作り）。ただし Pinshelf では、アドホック署名のままでも、棚のファイルのブックマーク・サンドボックスの保存場所・「ログイン時に起動」は引き継がれた（macOS 27.0.1 で確かめた。下の「更新」）
+- 決まりの全体は、共通のノート「Pinシリーズの決まり」（アプリの ID・証明書・金庫・アドホック署名の扱い）。ここには Pinshelf での形だけを書く
+- macOS は、アプリが同じものかを「アプリの ID ＋ 署名の証明書」で見分ける（許可・サンドボックスの保存場所・キーチェーンの読み書きの許し）。アドホック署名は、ビルドし直すたびに別のアプリと見なされるので、決まった自己署名の証明書で署名する
+- ID と証明書は、使い道で分ける
+
+  | 使い道 | ID | 画面の名前 | 証明書 |
+  |---|---|---|---|
+  | 配る版（`make dist`・`make publish`） | `app.nexy.Pinshelf` | Pinshelf | `nexy Release Signing`（作者の金庫の中） |
+  | 開発のビルド（`make run`・`make install`） | `app.nexy.Pinshelf.dev` | Pinshelf Dev | `nexy Dev Signing`（各自のログインキーチェーン。`make cert`） |
+  | 更新の試験（`make update-test`） | `app.nexy.Pinshelf.updatetest` | Pinshelf UpdateTest | `nexy Dev Signing` |
+  | テスト（Xcode から） | `app.nexy.Pinshelf.tests` | — | アドホック（許可を使わないため） |
+
+- ビルドの設定は `project.yml` の 3 つ。Debug（`make build`・`make run`）、Install（`make install`。Release と同じ最適化・Hardened Runtime で、ID・名前・証明書・空の公開鍵は Debug と同じ。YAML のアンカーで Debug と共有する）、Release（`make dist`）
+- 開発のビルド・アイコンや README の画像を作る道具も、開発用の証明書で署名する。証明書がなければ止まって `make cert` を案内し、`ADHOC=1` を付けたときだけアドホック署名にする（`1` だけを受け付ける。配る版には効かない）。`make build`・`make install` は、ビルドのあとに想定の署名になったかを `codesign -dvv` で確かめる（開発用の証明書は人ごとに違うので、名前で見る）
+- 配る版用の証明書と、更新ファイルの署名の鍵（Sparkle・アカウント名 `nexy-release`）は、作者の Mac の鍵付きのキーチェーン（金庫。`~/Library/Keychains/nexy-release.keychain-db`）に入れる。金庫はふだん閉まっていて、検索リストにも入れない（閉まった金庫をほかのプログラムが探すと、パスワードの画面が出るため）。`make dist`・`make publish` は `scripts/vault.sh` を通して、その場でパスワードを聞いて開け、開けている間だけ検索リストに入れ（Xcode は、検索リストにない箱の証明書を `--keychain` を渡しても見つけられない。2026-11-27 に確かめた）、終わったら（失敗や control + C でも）閉めて検索リストを戻す。AI の作業環境（ターミナルのないところ）からは開けない
+- 証明書は名前ではなく指紋（SHA-1）で確かめる。`make dist` は、署名の前に金庫の証明書の指紋が `project.yml` の Release の `CODE_SIGN_IDENTITY`（Xcode もこの指紋で証明書を選ぶ）と合うか、署名のあとにアプリがその証明書で署名されたかを確かめる（`scripts/signing-check.sh`）
 - Debug ではアプリのコードを `Pinshelf.debug.dylib` に分けて読み込むので、自前の証明書でも読み込めるよう、Debug だけ Hardened Runtime を切っている
 - PinshelfCore は、埋め込むフレームワークにすると自前の証明書で署名したときに読み込みを断られることがあるので、静的ライブラリにしている
-- 配る版（`make dist`）は、いつもアドホック署名。Apple の公証は受けていない
+- Apple の Developer ID は使わず、公証も受けていない（初めて開くときに「このまま開く」が要る）
 - 配る版（Release）には、デバッガをつなぐための許可（`get-task-allow`）を入れない（`CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO`。何もしないと、Xcode がビルドのときに足す）
 
 ### 更新
@@ -176,7 +191,7 @@ Makefile            ビルド・起動・テスト・インストール・配布
 Developer ID に登録しない前提で、[Sparkle](https://sparkle-project.org) 2 を使う。検討の経緯と根拠は、ノート「更新の仕組みの方針」にまとめてある。
 
 - **取り込み方**: 公式の配布物（`Sparkle.framework` と道具）を `make` が取り寄せ、決めてある SHA-256 と合うことを確かめて `Vendor/Sparkle` に置く。Swift パッケージにしないのは、取り寄せる版と中身を固定し、道具（`generate_appcast` など）も同じ配布物から使うため。Sparkle の版を上げるときは、`Makefile` の `SPARKLE_VERSION` と `SPARKLE_SHA256` を一緒に変える
-- **本物かの確かめ**: 更新ファイル（zip）は、作者の EdDSA の鍵で署名する。アプリには公開鍵（`SUPublicEDKey`）を入れ、Sparkle が署名を確かめてから入れ替える。Apple の署名（アドホック）は版ごとに変わるので、確かめには使えない。公開鍵の入っていないビルドでは、更新の機能を出さない（`SparkleUpdater.start` が nil を返す）
+- **本物かの確かめ**: 更新ファイル（zip）は、作者の EdDSA の鍵で署名する。アプリには公開鍵（`SUPublicEDKey`。`project.yml` の `PINSHELF_UPDATE_PUBLIC_KEY`）を入れ、Sparkle が署名を確かめてから入れ替える。秘密鍵は作者の金庫の中にあり、`generate_appcast` が版の一覧を作るときに zip に署名する（`sign_update` は使わない）。公開鍵の入っていないビルド（開発のビルド。`project.yml` の Debug と Install は空にする）では、更新の機能を出さない（`SparkleUpdater.start` が nil を返す）
 - **「このまま開く」が要らない理由**: Sparkle が自分でダウンロードして確かめた版からは、ダウンロードのしるし（quarantine）を外す。だから、更新で入れた版は Gatekeeper に止められない（初めて入れるときは、ブラウザで落とした DMG にしるしが付くので、1 回要る）
 - **サンドボックス**: サンドボックスの中からは自分を入れ替えられないので、Sparkle の入れ替え役（XPC サービス。`SUEnableInstallerLauncherService`）に任せ、それと通信する許可（`mach-lookup` の例外）を足している。ネット接続の許可（`network.client`）は、確認とダウンロードのため
 - **ライブラリの検証**: Team ID のない署名（アドホック・自己署名）では、Hardened Runtime のままだと、埋め込んだ Sparkle の読み込みを断られる。`cs.disable-library-validation` で検証を切っている（切らないと、起動で落ちる）
@@ -186,9 +201,9 @@ Developer ID に登録しない前提で、[Sparkle](https://sparkle-project.org
 - **印を消すとき**: 印は「まだ入れていない新しい版がある」の意味で、入れるか飛ばすまで出しておく。Sparkle の説明書は「画面を見てもらったら印を消す」作り（`standardUserDriverDidReceiveUserAttention`）を勧めるが、それだと更新の画面を開いて「あとで通知」で閉じただけで消え、次に自動で確かめるまで戻らないので使わない。見つけた版とビルド番号を `UserDefaults` に保存し（`AppUpdates`）、起動したときに今の版より新しければ印を戻す（終了しても消えないように）。消すのは、利用者が「このバージョンはスキップ」を選んだとき（`updater(_:userDidMake:forUpdate:state:)` の `.skip`）・確かめ直して新しい版がなかったとき（`updaterDidNotFindUpdate`。通信の失敗では呼ばれない）・入れて今の版が同じか新しくなったとき
 - **確認中の小窓の長さ**: 問い合わせはすぐ終わり、「アップデートを確認中…」の小窓が一瞬で閉じてちらついて見えるので、Sparkle の標準の画面（`SPUStandardUserDriver`）を `PacedUserDriver` で包み、小窓を少なくとも 0.5 秒は出してから結果の画面に渡す（そのため `SPUStandardUpdaterController` ではなく、`SPUUpdater` を自分で作る）
 - **画面の側との分け方**: Sparkle を読み込むのは `SparkleUpdater` だけ。メニューと設定は、`PinshelfCore` の `AppUpdates`（状態）を通して使う。Sparkle なしでアプリのコードをビルドする `make readme-images` と、テストのため
-- **版の一覧**: `appcast.xml` をリポジトリの main に置き、アプリは `raw.githubusercontent.com` から読む（β 版は GitHub の「最新の版」に出ないので、Releases の latest は使えない）。載せるのは、いちばん新しい版だけ。この版の変更（`scripts/release-changes.md`）を、Markdown のまま埋め込む
+- **版の一覧**: `appcast.xml` は、組織 nexy-apps の GitHub Pages のリポジトリ（[nexy-apps.github.io](https://github.com/nexy-apps/nexy-apps.github.io)）の `pinshelf/appcast.xml` に置き、アプリは `https://nexy-apps.github.io/pinshelf/appcast.xml` から読む（`SUFeedURL`。配ったあとは変えない。のちに独自のドメインを付けても、GitHub Pages が同じ道筋のまま転送し、Sparkle は転送をたどる）。アプリのリポジトリには置かない。β 版は GitHub の「最新の版」に出ないので、Releases の latest は使えない。載せるのは、いちばん新しい版だけ。この版の変更（`scripts/release-changes.md`）を、Markdown のまま埋め込む
 - **版の比べ方**: Sparkle は `CFBundleVersion`（ビルド番号）で新旧を比べる。出すたびに必ず上げる
-- **配る版の署名**: Pinshelf は許可（画面収録など）を使わないので、アドホック署名のまま配る。macOS 14 以降は、サンドボックスの保存場所もアプリの署名にひも付き、署名の違う版が開くと macOS が利用者に確認する（Apple の資料）。アドホック署名は版ごとに署名が変わるが、macOS はアドホック署名のアプリの保存場所の持ち主を「アプリの ID・署名者なし」と覚えるので（`secinitd` の記録の `signer:none`）、アドホック署名どうしなら、版が変わっても同じ持ち主として扱われる。通しの試験（macOS 27.0.1）で、確認が出ないこと、棚のファイルと「ログイン時に起動」が引き継がれることを確かめた。macOS の版が上がって変わったときは、決まった自己署名の証明書での署名に変える（`make update-test` と `make update-test-log` で確かめる）
+- **配る版の署名**: 配る版は、どの版も同じ証明書（`nexy Release Signing`）で署名する。macOS 14 以降は、サンドボックスの保存場所もアプリの署名にひも付き、署名の違う版が開くと macOS が利用者に確認するため、証明書を替えると、更新のあとに確認が出たり、引き継げなかったりする。証明書は 9999 年まで使えるように作ってあり、替えない（替えるときは、ID を変えて出し直すのと同じ扱い）。0.3.2 までは ID `app.pinshelf.Pinshelf`・アドホック署名で配っていたが、2026-11 に ID と署名を改め、0.1.0 から出し直した（前の版からは更新しない）
 - **記録**: 起動のたびに、版・「ログイン時に起動」の状態（`AppDelegate`）と、棚のファイルをどう戻せたか（ブックマークで・パスで・見つからず。`ShelfPersistence`）を、macOS の記録に 1 行ずつ残す。入れ替えのあとに引き継がれたかを、あとから確かめられる
 - **ライセンス**: Sparkle のライセンス（MIT など）は、配るものに全文を含める決まり。`Pinshelf/Licenses/Sparkle.txt` として同梱する（`make` が、取り寄せた配布物から写す）
 
@@ -201,8 +216,9 @@ Pinshot と同じ決まりにしている。
 - 出すたびに、版とビルド番号を上げ、`scripts/release-changes.md`（この版の変更）を書き直す
 - `make publish BETA=1` で β 版としてプレリリースにする（タグは `v<版>-beta.1`。説明の先頭に `scripts/release-notes-beta.md` の注意が付く）。正式版は `BETA` を付けずに `make publish`
 - リリースの説明は「この版の変更」＋「ダウンロードと開き方」（`scripts/release-notes.md`）をつなげたもの。`make publish` は GitHub CLI（`gh`）で Release を作る
-- `make publish` は、Release を作る前に zip に署名して `appcast.xml` を作り直し、Release を作ったあと、`appcast.xml` だけをコミットしてプッシュする。先に、鍵がそろっているか・コミット済みで GitHub の main と同じかを確かめ、そろっていなければ何も作らずに止まる（`scripts/publish-check.sh`）
-- 更新ファイルの署名の鍵（EdDSA）は、`make update-key` で一度だけ作る。秘密鍵はログインキーチェーンに入り、公開鍵を `project.yml` に書き込む。鍵は Pin シリーズで共通に使える。失くすと更新を届けられなくなるので、控え（`generate_keys -x`）を安全な場所に保管する
+- `make publish` は、先にコミット済みで GitHub の main と同じか・タグがまだないかを確かめ（`scripts/publish-check.sh git`）、金庫を開けてから、金庫の更新の鍵が `project.yml` の公開鍵と合うかを確かめる（`publish-check.sh key`）。そろっていなければ何も作らずに止まる。そのあと、DMG と zip を作り、版の一覧の置き場所のリポジトリを `build/appcast-site` に取り寄せて `pinshelf/appcast.xml` を作り直し、Release を作ってから、版の一覧をコミットしてプッシュする
+- 更新ファイルの署名の鍵（EdDSA）は Pin シリーズで共通の 1 本で、作者が `scripts/create-nexy-keys.sh` で一度だけ作った（金庫の中）。失くすと更新を届けられなくなるので、控えを Mac の外に保管してある（決まりは共通のノート「Pinシリーズの決まり」）
+- テストは手元だけで流す（GitHub Actions では流さない）。`make setup` で git hooks（`.githooks/pre-push`）を有効にすると、push の前に `make test` が流れ、失敗したら push を止める
 - DMG は、使える macOS では `diskutil image create` で作る（`hdiutil create` は macOS 26 で「使わなくなる」と警告が出るため）
 
 ### 言葉と見せ方の決まり

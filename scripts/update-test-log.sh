@@ -7,7 +7,7 @@
 # 使い方: update-test-log.sh
 #   環境変数 SINCE: いつからの記録を集めるか（"2026-11-26 19:50:00" の形）。なければ、直近 30 分
 #
-# 変数のすぐ後ろに全角の文字を続けるときは、${NAME} と波かっこで囲む（create-dev-cert.sh と同じ理由）。
+# 変数のすぐ後ろに全角の文字を続けるときは、${NAME} と波かっこで囲む（create-signing-cert.sh と同じ理由）。
 set -euo pipefail
 
 OUTPUT="build/update-test/system.log"
@@ -19,9 +19,9 @@ mkdir -p "$(dirname "${OUTPUT}")"
 # - Sparkle の記録（アプリの外へ写して動く部品のものも含む）
 # - サンドボックスが、試験用アプリの操作を断った記録
 # - ほかのアプリのデータ（サンドボックスの保存場所）を開く許可のやりとり
-PREDICATE='eventMessage CONTAINS "UpdateTest"
+PREDICATE='eventMessage CONTAINS[c] "UpdateTest"
   OR eventMessage CONTAINS "update-test/"
-  OR processImagePath CONTAINS "UpdateTest"
+  OR processImagePath CONTAINS[c] "UpdateTest"
   OR processImagePath CONTAINS "update-test/"
   OR subsystem == "org.sparkle-project.Sparkle"
   OR eventMessage CONTAINS "Sandbox: Pinshelf("

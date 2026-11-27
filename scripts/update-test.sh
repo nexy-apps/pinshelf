@@ -1,7 +1,7 @@
 #!/bin/bash
 # 更新を、手元で通しで試す準備をする（make update-test。手順は docs/TESTING.md の「更新を通しで試す」）。
 #
-# ふだんの Pinshelf とは別の ID・別の名前（PinshelfUpdateTest）の試験用アプリを、古い版と新しい版の 2 つ作り、
+# ふだんの Pinshelf とは別の ID（app.nexy.Pinshelf.updatetest）・別の名前（Pinshelf UpdateTest）の試験用アプリを、古い版と新しい版の 2 つ作り、
 # 新しい版を手元のサーバー（http://localhost:8765。ポートは UPDATE_TEST_PORT で替えられる）から配る。古い版を開くと、Sparkle が新しい版を見つけて入れ替える。
 #
 # 古い版の開き方は 2 通り:
@@ -14,27 +14,26 @@
 # - 試験用アプリだけ、手元のサーバー（暗号化なし）から読めるように、通信の例外を足す（配る版には入れない）
 #
 # 使い方: update-test.sh [xcodebuild に足す引数…]
-#   環境変数 SIGN_IDENTITY: アプリの署名に使う証明書の名前（make update-test SIGN_IDENTITY="Pinshelf Dev" のように渡す）。
-#     なければ、アドホック署名。証明書で署名するときは、ID と名前の後ろに Signed を付ける
-#     （macOS は、サンドボックスの保存場所をアプリの署名にひも付けるので、署名のやり方ごとに保存場所を分ける）
+#   環境変数 SIGN_IDENTITY: アプリの署名に使う証明書（make update-test が、開発用の証明書 nexy Dev Signing を渡す。
+#     make update-test ADHOC=1 のときは "-" でアドホック署名）
 #   環境変数 UPDATE_TEST_PORT: 手元のサーバーのポート（なければ 8765）。試験用アプリの中にも書き込むので、ビルドの前に決める
 #   環境変数 NO_SERVER=1: アプリと版の一覧を作るだけで、サーバーは動かさない
 #
-# 変数のすぐ後ろに全角の文字を続けるときは、${NAME} と波かっこで囲む（create-dev-cert.sh と同じ理由）。
+# 変数のすぐ後ろに全角の文字を続けるときは、${NAME} と波かっこで囲む（create-signing-cert.sh と同じ理由）。
 set -euo pipefail
 
 # 手元のサーバーのポート。Pin シリーズの更新の試験どうしでぶつからないよう、アプリごとに分ける（Pinshot は 8766、Pinstage は 8767）
 PORT="${UPDATE_TEST_PORT:-8765}"
-SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+SIGN_IDENTITY="${SIGN_IDENTITY:?SIGN_IDENTITY がありません（make update-test から流してください）}"
 if [ "${SIGN_IDENTITY}" = "-" ]; then
-  SUFFIX=""
   SIGN_LABEL="アドホック署名"
 else
-  SUFFIX="Signed"
   SIGN_LABEL="証明書「${SIGN_IDENTITY}」で署名"
 fi
-TEST_ID="app.pinshelf.UpdateTest${SUFFIX}"
-TEST_NAME="PinshelfUpdateTest${SUFFIX}"
+# 試験用アプリの ID・アプリのファイル名・画面に出る名前（決まりは、共通のノート「Pinシリーズの決まり」の 3 の節）
+TEST_ID="app.nexy.Pinshelf.updatetest"
+TEST_NAME="PinshelfUpdateTest"
+TEST_DISPLAY_NAME="Pinshelf UpdateTest"
 ROOT="$(pwd)"
 WORK="${ROOT}/build/update-test"
 SITE="${WORK}/site"
@@ -44,13 +43,10 @@ PRODUCT="${WORK}/DerivedData/Build/Products/Release/Pinshelf.app"
 PLIST_BUDDY=/usr/libexec/PlistBuddy
 
 # 試験用アプリが動いたままだと、作り直した古い版を開いても、動いているほうが前に出るだけになる
-# （署名のやり方が違うほうの試験用アプリも、作り直しで消すので、動いていないことを確かめる）
-for id in app.pinshelf.UpdateTest app.pinshelf.UpdateTestSigned; do
-  if lsappinfo find bundleid="${id}" 2>/dev/null | grep -q .; then
-    echo "試験用の Pinshelf（${id}）が動いています。終了してから、もう一度流してください。" >&2
-    exit 1
-  fi
-done
+if lsappinfo find bundleid="${TEST_ID}" 2>/dev/null | grep -q .; then
+  echo "試験用の Pinshelf（${TEST_DISPLAY_NAME}）が動いています。終了してから、もう一度流してください。" >&2
+  exit 1
+fi
 
 # サーバーを動かせるか（ポートが空いているか）を、ビルドの前に確かめる（ビルドには数分かかるので、作り終えてから止まらないように）。
 # サーバーと同じく 127.0.0.1 のそのポートで受け口を開いてみて、開けなければ止める
@@ -98,6 +94,8 @@ mkdir -p "${WORK}/old" "${WORK}/new" "${SITE}/download" "${WORK}/plists"
 # 試験用の鍵を作る（1 行目が秘密鍵、2 行目が公開鍵）
 echo "試験用の鍵を作っています…"
 xcrun swiftc -O -module-cache-path "${WORK}/module-cache" scripts/update-test-key.swift -o "${WORK}/make-key"
+# 補助の道具も、アプリと同じ証明書で署名する（アドホック署名にするのは ADHOC=1 のときだけ。決まりの 5 の節）
+codesign -f -s "${SIGN_IDENTITY}" "${WORK}/make-key" 2>/dev/null
 KEYS="$("${WORK}/make-key")"
 KEY_FILE="${WORK}/test-private-key.txt"
 echo "${KEYS}" | sed -n 1p > "${KEY_FILE}"
@@ -109,7 +107,7 @@ make_plist() {
   local output="$1" build="$2" version="$3"
   cp Pinshelf/Info.plist "${output}"
   "${PLIST_BUDDY}" \
-    -c "Set :CFBundleDisplayName ${TEST_NAME}" \
+    -c "Set :CFBundleDisplayName ${TEST_DISPLAY_NAME}" \
     -c "Set :CFBundleVersion ${build}" \
     -c "Set :CFBundleShortVersionString ${version}" \
     -c "Set :SUFeedURL http://localhost:${PORT}/appcast.xml" \
@@ -172,7 +170,7 @@ cat <<EOF
   新しい版（${NEW_VERSION}）: 手元のサーバーから配ります
 
 どちらの試し方でも、先に、ふだんの Pinshelf を終了しておきます（make stop）。
-試験用アプリの名前は ${TEST_NAME} です（メニューバーのアイコンは、ふだんの Pinshelf と同じ）。
+試験用アプリの名前は ${TEST_DISPLAY_NAME} です（アプリのファイルは ${TEST_NAME}.app。メニューバーのアイコンは、ふだんの Pinshelf と同じ）。
 
 ■ 手早く試す（手元でビルドした古い版から更新する）
   1. 別のターミナルで、古い版を開く:  open "${OLD_APP}"

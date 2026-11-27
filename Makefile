@@ -1,10 +1,13 @@
 DERIVED_DATA := build/DerivedData
 APP := $(DERIVED_DATA)/Build/Products/Debug/Pinshelf.app
 RELEASE_APP := $(DERIVED_DATA)/Build/Products/Release/Pinshelf.app
-# アプリの識別名（Launch Services に、まだ動いていると思われていないかを調べるのに使う）
-BUNDLE_ID := app.pinshelf.Pinshelf
-# make install で入れる場所
+INSTALL_BUILT_APP := $(DERIVED_DATA)/Build/Products/Install/Pinshelf.app
+# 開発のビルド（make build・run・install）の ID。make stop が、配る版を止めないよう、この ID のアプリだけを終了する。
+# ID と画面の名前は project.yml の Debug・Install で決めている（変えるときは、ここも合わせる。決まりは共通のノート「Pinシリーズの決まり」の 3 の節）
+DEV_BUNDLE_ID := app.nexy.Pinshelf.dev
+# make install で入れる場所（開発のビルドなので、配る版の Pinshelf.app とぶつからないよう「Pinshelf Dev.app」の名前で入れる）
 INSTALL_DIR ?= /Applications
+INSTALL_APP := $(INSTALL_DIR)/Pinshelf Dev.app
 # アプリの版（project.yml の CFBundleShortVersionString）。1.0.0 より前は β 版
 VERSION := $(shell sed -n 's/.*CFBundleShortVersionString: *"\(.*\)"/\1/p' project.yml)
 # β 版として出すときは BETA=1 のように番号を渡す（タグは v0.1.0-beta.1、GitHub ではプレリリースにする）
@@ -14,9 +17,30 @@ DIST_BASE := dist/Pinshelf-$(RELEASE_NAME)
 DIST_ZIP := $(DIST_BASE).zip
 DIST_DMG := $(DIST_BASE).dmg
 
-# 「Pinshelf Dev」の証明書があればそれで署名する（なければその場の署名＝アドホック署名）。
-# 毎回同じ証明書で署名すると、ビルドし直しても同じ署名になる（make cert で一度だけ作る。なくても困らない: docs/ARCHITECTURE.md の「署名」）
-SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep -q '"Pinshelf Dev"' && echo "Pinshelf Dev" || echo "-")
+# 署名（決まりは、共通のノート「Pinシリーズの決まり」の 4・5 の節と docs/ARCHITECTURE.md の「署名」）。
+# 開発のビルド・更新の試験・補助の道具は、開発用の証明書で署名する（make cert で一度だけ作る）。
+# 証明書がなければ止めて案内を出す（黙ってアドホック署名にしない）。ADHOC=1 を付けたときだけ、注意を出してアドホック署名にする。
+# 作者以外がソースからビルドするときは、DEV_CERT="〇〇 Dev Signing" のように自分の証明書の名前を渡せる
+DEV_CERT ?= nexy Dev Signing
+ADHOC ?=
+# BETA=1 とそろえて、1 だけを受け付ける（true・yes などは、気づかずに証明書のビルドになるので止める）
+ifneq ($(filter-out 1,$(ADHOC)),)
+$(error ADHOC には 1 だけを渡せます（いまの値: $(ADHOC)）。アドホック署名にするときは ADHOC=1、しないときは付けない)
+endif
+DEV_SIGN := $(if $(filter 1,$(ADHOC)),-,$(DEV_CERT))
+# ビルドしたアプリが、想定の署名（開発用の証明書。ADHOC=1 のときはアドホック署名）になったかを確かめる。
+# 開発用の証明書は人ごとに違い、指紋を決めておけないので、名前で見る（配る版は signing-check.sh で指紋を見る）
+DEV_SIGN_WANT := $(if $(filter 1,$(ADHOC)),Signature=adhoc,Authority=$(DEV_CERT))
+check_dev_signed = codesign -dvv "$(1)" 2>&1 | grep -qxF "$(DEV_SIGN_WANT)" || { \
+	echo "$(1) が、想定の署名（$(DEV_SIGN_WANT)）になっていません。いまの署名:" >&2; \
+	codesign -dvv "$(1)" 2>&1 | grep -E '^(Authority|Signature)=' >&2; exit 1; }
+# 配る版（make dist・make publish）は、作者の金庫の中の「nexy Release Signing」で署名する。証明書は project.yml の
+# Release の CODE_SIGN_IDENTITY（SHA-1）で決めていて、ここではビルドの前後の確かめのために読む。ADHOC=1 は効かない。
+# 金庫は scripts/vault.sh が開けて、必ず閉める
+RELEASE_SIGN_IDENTITY = $(or $(shell sed -n 's/^ *CODE_SIGN_IDENTITY: *\([0-9A-F]\{40\}\) *$$/\1/p' project.yml),\
+	$(error project.yml の Release に、CODE_SIGN_IDENTITY（証明書の SHA-1）がありません))
+# 金庫の中の、更新ファイルに署名する鍵のアカウント名（Sparkle の道具に渡す）
+SPARKLE_ACCOUNT := nexy-release
 # Launch Services（アプリの場所とアイコンを覚えている macOS の仕組み）に、アプリを登録し直す道具。
 # アイコンを変えたあとも Finder・Dock が前のアイコン（アイコンを入れる前の仮のもの）を出し続けないよう、起動・インストールの前に使う
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
@@ -26,7 +50,7 @@ register_app = touch "$(1)"; $(LSREGISTER) -f "$(1)" >/dev/null 2>&1 || true
 XCODEBUILD_FLAGS ?=
 
 XCODEBUILD := xcodebuild -project Pinshelf.xcodeproj -scheme Pinshelf -sdk macosx \
-	-derivedDataPath $(DERIVED_DATA) CODE_SIGN_IDENTITY="$(SIGN_IDENTITY)" $(XCODEBUILD_FLAGS)
+	-derivedDataPath $(DERIVED_DATA) $(XCODEBUILD_FLAGS)
 
 # 更新の仕組み（Sparkle）。公式の配布物を取り寄せて Vendor/Sparkle に置く（リポジトリには入れない）。
 # 版を上げるときは、SPARKLE_VERSION と SPARKLE_SHA256（配布物 Sparkle-版.tar.xz の SHA-256）を一緒に変える
@@ -36,16 +60,22 @@ SPARKLE_DIR := Vendor/Sparkle
 SPARKLE_BIN := $(SPARKLE_DIR)/bin
 # 取り寄せた版の印（版を上げると名前が変わり、取り寄せ直す）
 SPARKLE_STAMP := $(SPARKLE_DIR)/.version-$(SPARKLE_VERSION)
-# 更新ファイルの署名を確かめる公開鍵（project.yml の SUPublicEDKey。make update-key が書き込む）
-UPDATE_PUBLIC_KEY := $(shell sed -n 's/^ *SUPublicEDKey: *"\(.*\)"/\1/p' project.yml)
+# 更新ファイルの署名を確かめる公開鍵（project.yml の PINSHELF_UPDATE_PUBLIC_KEY）
+# （最初の 1 行だけ読む。Debug・Install の空の値は読まない。make publish でだけ使うので、使うときに読む）
+UPDATE_PUBLIC_KEY = $(shell sed -n '/^ *PINSHELF_UPDATE_PUBLIC_KEY: *"\(.*\)"/{s//\1/p;q;}' project.yml)
 # 配る更新ファイル（zip）を置く場所。版の一覧（appcast.xml）の中のダウンロード元になる
-RELEASE_DOWNLOAD_URL := https://github.com/yzanbo/pinshelf/releases/download/v$(RELEASE_NAME)/
+RELEASE_DOWNLOAD_URL := https://github.com/nexy-apps/pinshelf/releases/download/v$(RELEASE_NAME)/
+# 版の一覧（appcast.xml）を置く場所。組織 nexy-apps の GitHub Pages（https://nexy-apps.github.io/pinshelf/appcast.xml）。
+# アプリのリポジトリには置かない（make publish が、置き場所のリポジトリに書き込んで送る）
+APPCAST_REPO := https://github.com/nexy-apps/nexy-apps.github.io.git
+APPCAST_SITE := build/appcast-site
+APPCAST_FILE := pinshelf/appcast.xml
 # 更新の試験で、新しい版を配る手元のサーバーのポート（Pin シリーズの試験どうしでぶつからないよう、Pinshot は 8766、Pinstage は 8767）。
 # ほかで使っているときは make update-test UPDATE_TEST_PORT=8800 のように替える
 UPDATE_TEST_PORT ?= 8765
 
-.PHONY: generate build release dist publish publish-check run stop install uninstall test clean cert icon readme-images \
-	sparkle update-key update-test update-test-log
+.PHONY: generate build release dist dist-in-vault publish publish-in-vault appcast-site run stop install install-build uninstall \
+	test clean cert setup icon readme-images sparkle update-test update-test-log dev-signing
 
 # アイコンを描くスクリプトをビルドする場所
 ICON_TOOL_DIR := $(DERIVED_DATA)/icon-tool
@@ -72,22 +102,40 @@ $(SPARKLE_STAMP):
 	cp "$(SPARKLE_DIR)/LICENSE" Pinshelf/Licenses/Sparkle.txt
 	touch "$@"
 
-# 開発用（Debug）にビルドする
-build: generate
-	@echo "署名: $(SIGN_IDENTITY)"
-	$(XCODEBUILD) -configuration Debug build
+# 開発用の証明書があるかを確かめる（なければ止めて案内を出す）。ADHOC=1 のときは、注意を出してアドホック署名にする
+dev-signing:
+ifeq ($(ADHOC),1)
+	@echo "注意: 証明書なし（アドホック署名）でビルドします。ビルドのたびに、許可を取り直すことになります。"
+else
+	@security find-identity -v -p codesigning 2>/dev/null | grep -qF '"$(DEV_CERT)"' || { \
+		echo "開発用の証明書「$(DEV_CERT)」が、この Mac にありません。" >&2; \
+		echo "最初に 1 回だけ make cert を流してください（証明書なしでビルドするときは ADHOC=1 を付ける）。" >&2; \
+		exit 1; }
+	@echo "署名: $(DEV_SIGN)"
+endif
 
-# 配布用（Release）にビルドする。Intel と Apple Silicon の両方で動く形にする
+# 開発用（Debug）にビルドする（ID は app.nexy.Pinshelf.dev・画面の名前は Pinshelf Dev・開発用の証明書）
+build: generate dev-signing
+	$(XCODEBUILD) -configuration Debug CODE_SIGN_IDENTITY="$(DEV_SIGN)" build
+	@$(call check_dev_signed,$(APP))
+
+# 配る版の設定（Release）でビルドする。Intel と Apple Silicon の両方で動く形にする。
+# 配る版用の証明書で署名するので、金庫が開いている必要がある（make dist から使う。ひとりで流すと、署名で止まる）
 release: generate
-	@echo "署名: $(SIGN_IDENTITY)"
 	$(XCODEBUILD) -configuration Release ONLY_ACTIVE_ARCH=NO build
 
 # GitHub の Releases に置く DMG と zip を作る（dist/Pinshelf-版.dmg・.zip・.sha256）。
 # DMG は、開くと Pinshelf.app とアプリケーションフォルダが並び、ドラッグで入れられる形にする。
-# 配る版は、いつもアドホック署名にする（アドホック署名どうしなら、更新しても保存場所・棚のファイル・
-# 「ログイン時に起動」が引き継がれることを確かめてある: docs/ARCHITECTURE.md の「更新」）
+# 配る版は、作者の金庫の中の「nexy Release Signing」で署名する。金庫は scripts/vault.sh が開け（パスワードをその場で聞く）、
+# 終わったら（失敗しても）必ず閉める。ビルドの前に証明書があるかを、ビルドのあとに正しい証明書で署名されたかを確かめる
 dist:
-	$(MAKE) release SIGN_IDENTITY=-
+	./scripts/vault.sh $(MAKE) dist-in-vault
+
+# 金庫を開けたあとの、make dist の中身（make dist と make publish から使う。ひとりでは流さない）
+dist-in-vault:
+	./scripts/signing-check.sh keychain "$(RELEASE_SIGN_IDENTITY)"
+	$(MAKE) release
+	./scripts/signing-check.sh app "$(RELEASE_APP)" "$(RELEASE_SIGN_IDENTITY)"
 	mkdir -p dist
 	ditto -c -k --sequesterRsrc --keepParent "$(RELEASE_APP)" "$(DIST_ZIP)"
 	rm -rf dist/dmg-root
@@ -110,36 +158,40 @@ dist:
 # 説明は「この版の変更」（scripts/release-changes.md。出すたびに書き直す）と「ダウンロードと開き方」をつなげる。
 # β 版のときは、説明の先頭に β 版の注意を付け、プレリリースにする。
 #
-# 入れてもらったアプリに更新を届けるため、zip に EdDSA の鍵で署名して、版の一覧（appcast.xml）を作り直す。
-# Release を作ったあと、appcast.xml だけをコミットしてプッシュする（アプリは、main の appcast.xml を見て新しい版を知る）
-publish: publish-check dist
+# 入れてもらったアプリに更新を届けるため、zip に金庫の中の鍵で署名して、版の一覧（appcast.xml）を作り、
+# 置き場所のリポジトリ（nexy-apps/nexy-apps.github.io）の pinshelf/appcast.xml に書き込んで送る（アプリの main には何も送らない）。
+# 金庫は最初に 1 回だけ開ける（パスワードを聞く）。先に、main が GitHub と同じか・この版をまだ出していないかを確かめ、
+# 版の一覧の置き場所を取ってくる（通信で失敗したときに、金庫を開けてビルドしたあとで止まらないように）
+publish: $(SPARKLE_STAMP)
+	./scripts/publish-check.sh git "$(RELEASE_NAME)"
+	$(MAKE) appcast-site
+	./scripts/vault.sh $(MAKE) publish-in-vault
+
+# 版の一覧の置き場所のリポジトリを、手元に取ってくる（前に取ってあれば、GitHub の最新に合わせる。歴史は要らないので最新だけ）
+appcast-site:
+	if [ -d "$(APPCAST_SITE)/.git" ]; then git -C "$(APPCAST_SITE)" fetch -q --depth 1 origin main && git -C "$(APPCAST_SITE)" reset -q --hard origin/main; \
+	else rm -rf "$(APPCAST_SITE)" && git clone -q --depth 1 "$(APPCAST_REPO)" "$(APPCAST_SITE)"; fi
+
+# 金庫を開けたあとの、make publish の中身（make publish から使う。ひとりでは流さない）
+publish-in-vault:
+	./scripts/publish-check.sh key "$(UPDATE_PUBLIC_KEY)" "$(SPARKLE_ACCOUNT)"
+	$(MAKE) dist-in-vault
 	( $(if $(BETA),cat scripts/release-notes-beta.md; echo;) cat scripts/release-changes.md; echo; cat scripts/release-notes.md ) > dist/release-notes.md
-	./scripts/make-appcast.sh "$(DIST_ZIP)" scripts/release-changes.md "$(RELEASE_DOWNLOAD_URL)" appcast.xml
+	mkdir -p "$(dir $(APPCAST_SITE)/$(APPCAST_FILE))"
+	SPARKLE_ACCOUNT="$(SPARKLE_ACCOUNT)" ./scripts/make-appcast.sh "$(DIST_ZIP)" scripts/release-changes.md "$(RELEASE_DOWNLOAD_URL)" "$(APPCAST_SITE)/$(APPCAST_FILE)"
 	gh release create "v$(RELEASE_NAME)" "$(DIST_DMG)" "$(DIST_ZIP)" "$(DIST_BASE).sha256" \
 		--target main --title "Pinshelf $(RELEASE_NAME)$(if $(BETA), (β 版))" $(if $(BETA),--prerelease) \
 		--notes-file dist/release-notes.md
-	git add appcast.xml
-	git commit -q -m "chore: 版の一覧（appcast）を $(RELEASE_NAME) にする" -- appcast.xml
-	git push origin main
+	git -C "$(APPCAST_SITE)" add "$(APPCAST_FILE)"
+	git -C "$(APPCAST_SITE)" commit -q -m "chore: Pinshelf の版の一覧を $(RELEASE_NAME) にする" -- "$(APPCAST_FILE)"
+	git -C "$(APPCAST_SITE)" push -q origin main
 	@echo ""
-	@echo "$(RELEASE_NAME) を公開しました。入れてもらったアプリには、appcast.xml を通して新しい版が届きます。"
-
-# 公開の前に確かめる（そろっていなければ、何も作らずに止める）
-# - 更新ファイルに署名する鍵があり、アプリに入れる公開鍵（project.yml）と合っている（合わない鍵で署名すると、更新が届かなくなる）
-# - コミットしていない変更がなく、GitHub の main と同じ（Release のタグは GitHub の main に付き、appcast.xml のプッシュで手元の main も送るため）
-# - この版（タグ v版）を、まだ公開していない（版を上げ忘れたまま流すと、appcast.xml だけ作り直して止まるため）
-publish-check: $(SPARKLE_STAMP)
-	./scripts/publish-check.sh "$(UPDATE_PUBLIC_KEY)" "$(RELEASE_NAME)"
-
-# 更新ファイルの署名に使う鍵（EdDSA）を用意して、公開鍵を project.yml に書き込む（最初の 1 回だけ）。
-# 秘密鍵は、この Mac のログインキーチェーンに入る（途中で、キーチェーンへのアクセスを聞かれたら許可する）
-update-key: $(SPARKLE_STAMP)
-	./scripts/update-key.sh
+	@echo "$(RELEASE_NAME) を公開しました。版の一覧は数分で https://nexy-apps.github.io/$(APPCAST_FILE) に出て、入れてもらったアプリに新しい版が届きます。"
 
 # 更新を、手元で通しで試す（docs/TESTING.md の「更新を通しで試す」）。
 # ふだんの Pinshelf とは別の ID の試験用アプリを 2 つの版で作り、新しい版を手元のサーバーから配る（止めるときは control + C）
-update-test: generate
-	UPDATE_TEST_PORT="$(UPDATE_TEST_PORT)" ./scripts/update-test.sh $(XCODEBUILD_FLAGS)
+update-test: generate dev-signing
+	SIGN_IDENTITY="$(DEV_SIGN)" UPDATE_TEST_PORT="$(UPDATE_TEST_PORT)" ./scripts/update-test.sh $(XCODEBUILD_FLAGS)
 
 # 更新の試験のあいだの macOS の記録を、build/update-test/system.log に書き出す
 # （確認の画面が出たかの裏取りと、うまくいかないときの手がかりに使う）。
@@ -155,37 +207,54 @@ run: build stop
 	@$(call register_app,$(APP))
 	@for i in 1 2 3 4 5; do open "$(APP)" 2>/dev/null && exit 0; sleep 0.5; done; open "$(APP)"
 
-# 動いている Pinshelf を終了する。棚を保存してから終わるので、終わり切るまで（最大 5 秒）待つ。
-# そのあと、Launch Services がアプリの終了に気づくまで（最大 3 秒）待つ
+# 動いている開発のビルド（Pinshelf Dev）を終了する（配る版の Pinshelf は止めない）。
+# 棚を保存してから終わるので、終わり切るまで（最大 8 秒）待つ
 stop:
-	-@killall Pinshelf 2>/dev/null; \
-	for i in $$(seq 1 50); do pgrep -x Pinshelf >/dev/null || break; sleep 0.1; done; \
-	for i in $$(seq 1 30); do lsappinfo find bundleid=$(BUNDLE_ID) | grep -q . || break; sleep 0.1; done
+	-@for asn in $$(lsappinfo find bundleid=$(DEV_BUNDLE_ID) 2>/dev/null); do \
+		pid=$$(lsappinfo info -only pid "$$asn" 2>/dev/null | sed -n 's/.*=//p'); \
+		[ -n "$$pid" ] && kill "$$pid" 2>/dev/null; \
+	done; \
+	for i in $$(seq 1 80); do lsappinfo find bundleid=$(DEV_BUNDLE_ID) 2>/dev/null | grep -q . || break; sleep 0.1; done
 
-# 配布用にビルドして、アプリケーションフォルダに入れる（前の版は置き換える）。
-# 「ログイン時に起動」は、ここに入れたアプリで入れる
-install: release stop
-	mkdir -p "$(INSTALL_DIR)/Pinshelf.app"
-	rsync -a --delete "$(RELEASE_APP)/" "$(INSTALL_DIR)/Pinshelf.app/"
-	@$(call register_app,$(INSTALL_DIR)/Pinshelf.app)
+# 配る版と同じ作り（project.yml の Install）でビルドし、開発のビルドとして「Pinshelf Dev.app」の名前でアプリケーションフォルダに入れる
+# （前に入れたものは置き換える。ID は app.nexy.Pinshelf.dev・開発用の証明書なので、配る版の Pinshelf とは別のアプリとして並ぶ）。
+# 動いている Pinshelf Dev は、ビルドが終わってから止める
+install: install-build stop
+	mkdir -p "$(INSTALL_APP)"
+	rsync -a --delete "$(INSTALL_BUILT_APP)/" "$(INSTALL_APP)/"
+	@$(call register_app,$(INSTALL_APP))
 	@echo ""
-	@echo "$(INSTALL_DIR)/Pinshelf.app に入れました。アプリケーションフォルダから Pinshelf を開いてください。"
+	@echo "$(INSTALL_APP) に入れました。アプリケーションフォルダから Pinshelf Dev を開いてください。"
 
-# アプリケーションフォルダから Pinshelf を消す（設定と棚の中身は残る）
+install-build: generate dev-signing
+	$(XCODEBUILD) -configuration Install ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY="$(DEV_SIGN)" build
+	@$(call check_dev_signed,$(INSTALL_BUILT_APP))
+
+# アプリケーションフォルダから Pinshelf Dev を消す（設定と棚の中身は残る）
 uninstall: stop
-	rm -rf "$(INSTALL_DIR)/Pinshelf.app"
+	rm -rf "$(INSTALL_APP)"
 
-# テストを動かす（アプリは起動しない）
+# テストを動かす（アプリは起動しない。PinshelfCore の swift test で流すので、署名は要らない）。
+# AI の作業環境（砂場）では、swift test がそのままでは動かないので、
+# 砂場の中で動く形（--disable-sandbox・モジュールのキャッシュの場所）で流す（git hooks から流れるときも同じ）
+SWIFT_TEST_FLAGS ?= --disable-sandbox
+export CLANG_MODULE_CACHE_PATH ?= $(or $(TMPDIR),/tmp)/clang-module-cache
 test:
 	cd PinshelfCore && swift test $(SWIFT_TEST_FLAGS)
 
+# 最初に 1 回だけ流す: GitHub に送る前（push の前）に自動テストを流す git hooks（.githooks/pre-push）を有効にする
+setup:
+	git config core.hooksPath .githooks
+	@echo "git hooks を有効にしました。git push の前に make test が流れます。"
+
 clean:
-	rm -rf $(DERIVED_DATA) PinshelfCore/.build build/update-test
+	rm -rf $(DERIVED_DATA) PinshelfCore/.build build/update-test $(APPCAST_SITE)
 
 # アプリのアイコンを描き直す（scripts/make-app-icon.swift を変えたとき。Pinshelf/Assets.xcassets に書き出す）
-icon:
+icon: dev-signing
 	mkdir -p $(ICON_TOOL_DIR)
 	swiftc -O -module-cache-path $(ICON_TOOL_DIR)/cache scripts/make-app-icon.swift -o $(ICON_TOOL_DIR)/make-app-icon
+	codesign -f -s "$(DEV_SIGN)" $(ICON_TOOL_DIR)/make-app-icon
 	$(ICON_TOOL_DIR)/make-app-icon
 
 # README の見本の画像を作り直す（棚の見た目を変えたとき。docs/images に書き出す。Pinshot と同じ考え方）。
@@ -196,7 +265,7 @@ SWIFT_TARGET := $(shell uname -m)-apple-macos26.0
 SWIFT_PLUGINS := $(shell xcode-select -p)/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins
 # swiftc に足す引数（ふだんは空）
 SWIFTC_FLAGS ?=
-readme-images:
+readme-images: dev-signing
 	mkdir -p "$(README_TOOL_APP)/Contents/MacOS" "$(README_TOOL_APP)/Contents/Resources"
 	cp scripts/readme-images/Info.plist "$(README_TOOL_APP)/Contents/Info.plist"
 	xcrun actool Pinshelf/Assets.xcassets --compile "$(README_TOOL_APP)/Contents/Resources" --platform macosx \
@@ -214,8 +283,10 @@ readme-images:
 		-plugin-path "$(SWIFT_PLUGINS)" -module-cache-path "$(README_TOOL_DIR)/module-cache" $(SWIFTC_FLAGS) \
 		-I "$(README_TOOL_DIR)" -L "$(README_TOOL_DIR)" -lPinshelfCore @"$(README_TOOL_DIR)/sources.txt" \
 		-o "$(README_TOOL_APP)/Contents/MacOS/ReadmeImages"
+	codesign -f -s "$(DEV_SIGN)" "$(README_TOOL_APP)"
 	"$(README_TOOL_APP)/Contents/MacOS/ReadmeImages" docs/images
 
-# 開発用の署名の証明書「Pinshelf Dev」を作る（一度だけ。途中でパスワードを聞かれる）
+# 開発用の証明書（DEV_CERT。作者は「nexy Dev Signing」）を作る（最初に一度だけ。あれば作らず、その SHA-1 を出す。
+# 途中で、Mac のログインパスワードを聞かれる）。配る版用の証明書と金庫は別のもので、作者だけが持つ（scripts/create-nexy-keys.sh）
 cert:
-	./scripts/create-dev-cert.sh
+	./scripts/create-signing-cert.sh "$(DEV_CERT)"

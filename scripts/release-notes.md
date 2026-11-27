@@ -10,7 +10,7 @@
 
 macOS 26 以降が必要です。ほかの権限（アクセシビリティなど）は求めません。
 
-ソースからビルドする方法は [README](https://github.com/yzanbo/pinshelf#readme) を見てください。
+ソースからビルドする方法は [README](https://github.com/nexy-apps/pinshelf#readme) を見てください。
 
 ---
 
