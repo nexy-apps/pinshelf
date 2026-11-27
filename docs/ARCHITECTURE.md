@@ -175,7 +175,7 @@ Makefile            ビルド・起動・テスト・インストール・配布
   | 配る版（`make dist`・`make publish`） | `app.nexy.Pinshelf` | Pinshelf | `nexy Release Signing`（作者の金庫の中） |
   | 開発のビルド（`make run`・`make install`） | `app.nexy.Pinshelf.dev` | Pinshelf Dev | `nexy Dev Signing`（各自のログインキーチェーン。`make cert`） |
   | 更新の試験（`make update-test`） | `app.nexy.Pinshelf.updatetest` | Pinshelf UpdateTest | `nexy Dev Signing` |
-  | テスト（Xcode から） | `app.nexy.Pinshelf.tests` | — | アドホック（許可を使わないため） |
+  | テスト（Xcode から。`make test` は `swift test` で署名なし） | `app.nexy.Pinshelf.tests` | — | `nexy Dev Signing` |
 
 - ビルドの設定は `project.yml` の 3 つ。Debug（`make build`・`make run`）、Install（`make install`。Release と同じ最適化・Hardened Runtime で、ID・名前・証明書・空の公開鍵は Debug と同じ。YAML のアンカーで Debug と共有する）、Release（`make dist`）
 - 開発のビルド・アイコンや README の画像を作る道具も、開発用の証明書で署名する。証明書がなければ止まって `make cert` を案内し、`ADHOC=1` を付けたときだけアドホック署名にする（`1` だけを受け付ける。配る版には効かない）。`make build`・`make install` は、ビルドのあとに想定の署名になったかを `codesign -dvv` で確かめる（開発用の証明書は人ごとに違うので、名前で見る）

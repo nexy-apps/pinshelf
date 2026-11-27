@@ -2,7 +2,7 @@
 # 更新を、手元で通しで試す準備をする（make update-test。手順は docs/TESTING.md の「更新を通しで試す」）。
 #
 # ふだんの Pinshelf とは別の ID（app.nexy.Pinshelf.updatetest）・別の名前（Pinshelf UpdateTest）の試験用アプリを、古い版と新しい版の 2 つ作り、
-# 新しい版を手元のサーバー（http://localhost:8765。ポートは UPDATE_TEST_PORT で替えられる）から配る。古い版を開くと、Sparkle が新しい版を見つけて入れ替える。
+# 新しい版を手元のサーバー（http://localhost:8765。ポートは make update-test UPDATE_TEST_PORT=… で替えられる）から配る。古い版を開くと、Sparkle が新しい版を見つけて入れ替える。
 #
 # 古い版の開き方は 2 通り:
 # - 手早く: 手元でビルドしたもの（build/update-test/old）を、そのまま開く
@@ -16,19 +16,21 @@
 # 使い方: update-test.sh [xcodebuild に足す引数…]
 #   環境変数 SIGN_IDENTITY: アプリの署名に使う証明書（make update-test が、開発用の証明書 nexy Dev Signing を渡す。
 #     make update-test ADHOC=1 のときは "-" でアドホック署名）
-#   環境変数 UPDATE_TEST_PORT: 手元のサーバーのポート（なければ 8765）。試験用アプリの中にも書き込むので、ビルドの前に決める
+#   環境変数 UPDATE_TEST_PORT: 手元のサーバーのポート（Makefile の UPDATE_TEST_PORT。make update-test が渡す。Pinshelf は 8765）。試験用アプリの中にも書き込むので、ビルドの前に決める
 #   環境変数 NO_SERVER=1: アプリと版の一覧を作るだけで、サーバーは動かさない
 #
 # 変数のすぐ後ろに全角の文字を続けるときは、${NAME} と波かっこで囲む（create-signing-cert.sh と同じ理由）。
 set -euo pipefail
 
 # 手元のサーバーのポート。Pin シリーズの更新の試験どうしでぶつからないよう、アプリごとに分ける（Pinshot は 8766、Pinstage は 8767）
-PORT="${UPDATE_TEST_PORT:-8765}"
-SIGN_IDENTITY="${SIGN_IDENTITY:?SIGN_IDENTITY がありません（make update-test から流してください）}"
+PORT="${UPDATE_TEST_PORT:?make update-test から流してください（UPDATE_TEST_PORT がありません）}"
+SIGN_IDENTITY="${SIGN_IDENTITY:?make update-test から流してください（SIGN_IDENTITY がありません）}"
 if [ "${SIGN_IDENTITY}" = "-" ]; then
   SIGN_LABEL="アドホック署名"
+  PERMISSION_NOTE="アドホック署名なので、入れ替えると別のアプリと見なされるのが正しい動き。保存場所の確認が出る・棚のファイルが開けなくなる、などが起きうる（まだ試していない。証明書で署名したときとの比べ用）"
 else
   SIGN_LABEL="証明書「${SIGN_IDENTITY}」で署名"
+  PERMISSION_NOTE="古い版と新しい版を同じ証明書で署名しているので、同じアプリと見なされるのが正しい動き"
 fi
 # 試験用アプリの ID・アプリのファイル名・画面に出る名前（決まりは、共通のノート「Pinシリーズの決まり」の 3 の節）
 TEST_ID="app.nexy.Pinshelf.updatetest"
@@ -125,7 +127,7 @@ build_app() {
   local plist="$1"
   shift
   if ! xcodebuild -project Pinshelf.xcodeproj -scheme Pinshelf -sdk macosx -configuration Release \
-    -derivedDataPath "${WORK}/DerivedData" CODE_SIGN_IDENTITY="${SIGN_IDENTITY}" \
+    -derivedDataPath "${WORK}/DerivedData" CODE_SIGN_IDENTITY="${SIGN_IDENTITY}" ARCHS="$(uname -m)" \
     PRODUCT_BUNDLE_IDENTIFIER="${TEST_ID}" INFOPLIST_FILE="${plist}" "$@" build >"${WORK}/build.log" 2>&1; then
     tail -30 "${WORK}/build.log"
     echo "ビルドできませんでした（記録: ${WORK}/build.log）" >&2
@@ -153,6 +155,10 @@ ditto "${PRODUCT}" "${NEW_APP}"
 NEW_ZIP="${SITE}/${TEST_NAME}-${NEW_VERSION}.zip"
 zip_app "${NEW_APP}" "${NEW_ZIP}"
 
+# 2 つの版の「同じアプリ」の条件（macOS が許可などを覚えるときの目印）。証明書で署名していれば、2 つとも同じになる
+OLD_REQUIREMENT="$(codesign -d -r- "${OLD_APP}" 2>&1 | sed -n 's/^designated => //p')"
+NEW_REQUIREMENT="$(codesign -d -r- "${NEW_APP}" 2>&1 | sed -n 's/^designated => //p')"
+
 # 版の一覧を作る（試験用の鍵で署名する）
 cat > "${WORK}/notes.md" <<EOF
 ## 更新の試験
@@ -168,6 +174,11 @@ cat <<EOF
 
   古い版（${VERSION}）: ${OLD_APP}
   新しい版（${NEW_VERSION}）: 手元のサーバーから配ります
+
+  macOS が「同じアプリ」と見なす条件（許可などはこれにひも付く）:
+    古い版: ${OLD_REQUIREMENT}
+    新しい版: ${NEW_REQUIREMENT}
+  （${PERMISSION_NOTE}）
 
 どちらの試し方でも、先に、ふだんの Pinshelf を終了しておきます（make stop）。
 試験用アプリの名前は ${TEST_DISPLAY_NAME} です（アプリのファイルは ${TEST_NAME}.app。メニューバーのアイコンは、ふだんの Pinshelf と同じ）。

@@ -42,8 +42,9 @@ targets:
         # Xcode のテストのターゲット（make test は PinshelfCore の swift test で流すので、こちらは Xcode から使うときだけ）
         PRODUCT_BUNDLE_IDENTIFIER: app.nexy.Pinshelf.tests
         GENERATE_INFOPLIST_FILE: YES
+        # テストも開発用の証明書で署名する（Pin シリーズの決まり。アドホック署名は ADHOC=1 のときだけ。Pinshot と同じ）
         CODE_SIGN_STYLE: Manual
-        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_IDENTITY: nexy Dev Signing
         DEVELOPMENT_TEAM: ""
 
   Pinshelf:
