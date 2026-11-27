@@ -118,7 +118,7 @@ cd pinshelf
 make install
 ```
 
-`make install` は配る版と同じ作り（最適化など）でビルドし、開発のビルドとして `/Applications/Pinshelf Dev.app` に入れます（ID は `app.nexy.Pinshelf.dev`、画面の名前は「Pinshelf Dev」。配る版の Pinshelf とは別のアプリとして並びます。更新の機能は出ません）。Intel と Apple Silicon のどちらの Mac でも動きます。
+`make install` は配る版と同じ作り（最適化など）でビルドし、開発のビルドとして `/Applications/Pinshelf Dev.app` に入れます（ID は `app.nexy.Pinshelf.dev`、画面の名前は「Pinshelf Dev」。配る版の Pinshelf とは別のアプリとして並びます。更新の機能は出ません）。`make run` も同じ `/Applications/Pinshelf Dev.app` に置いて起動するので、開発版のアプリはいつも 1 つで、システム設定の許可の一覧にも「Pinshelf Dev.app」と出て、配る版の「Pinshelf.app」と見分けられます。Intel と Apple Silicon のどちらの Mac でも動きます。
 
 最初に 1 回だけ、署名に使う証明書を作ります（`make cert`。途中で Mac のログインパスワードを聞かれます。初めてビルドするときに、codesign が鍵を使ってよいかを聞かれたら「常に許可」を押します）。証明書がないと、`make install` などは止まって案内を出します。証明書を作らずにビルドしたいときは `ADHOC=1` を付けます（アドホック署名。ビルドのたびに、許可を取り直すことになります）。
 
@@ -153,11 +153,11 @@ make uninstall
 |---|---|
 | `make cert` | 開発用の証明書（`nexy Dev Signing`）を作る（最初に一度だけ。作者以外は `DEV_CERT="〇〇 Dev Signing"` で自分の名前にできる） |
 | `make setup` | push の前に自動テストを流す git hooks を有効にする（最初に一度だけ） |
-| `make run` | 動いている Pinshelf Dev を終了し、開発用（Debug）にビルドして起動する |
+| `make run` | 開発用（Debug。速くビルドできる）にビルドし、動いている Pinshelf Dev を終了して、`/Applications/Pinshelf Dev.app` に置き換えて起動する（コードを直しては試すときに） |
 | `make build` | 開発用にビルドするだけ |
 | `make test` | テストを動かす（アプリは起動しない） |
-| `make install` | 配る版と同じ設定でビルドし、`/Applications/Pinshelf Dev.app` に入れる |
-| `make uninstall` | `/Applications/Pinshelf Dev.app` を削除する（設定と棚の中身は残る） |
+| `make install` | 配る版と同じ設定でビルドし、`make run` と同じ `/Applications/Pinshelf Dev.app` に入れる（起動はしない。配る版に近い形で動きを確かめるときに。配る版の Pinshelf とは別のアプリとして並ぶ） |
+| `make uninstall` | `/Applications/Pinshelf Dev.app` を削除する（`make run`・`make install` のどちらで入れたものも。設定と棚の中身は残る） |
 | `make dist` | Releases に置く DMG と zip（`dist/Pinshelf-<版>.dmg`・`.zip`・`.sha256`）を作る（作者だけ。金庫を開けて、配る版用の証明書で署名する。パスワードを聞かれる） |
 | `make publish` | DMG と zip を作り、GitHub に Release（タグ `v<版>`）を作ってアップロードする（作者だけ）。β 版は `make publish BETA=1`（タグ `v<版>-beta.1`・プレリリース）。zip に金庫の中の鍵で署名し、版の一覧（`appcast.xml`）を作って、置き場所（[nexy-apps.github.io](https://github.com/nexy-apps/nexy-apps.github.io)）に送るまで行う（コミット済みで、GitHub の main と同じ状態からだけ動く） |
 | `make update-test` | 更新を、手元で通しで試す（別の ID の試験用アプリを 2 つの版で作り、手元のサーバーから配る。[docs/TESTING.md](docs/TESTING.md)） |

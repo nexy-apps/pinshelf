@@ -155,14 +155,14 @@ Makefile            ビルド・起動・テスト・インストール・配布
 - アプリのアイコンは、トレーに入れたカードを赤いピンで留めた絵（Pin + Shelf）。作りは Pinshot のアイコンにそろえ（白いものを赤いピンで留める）、背景の色（Pinshot は青、Pinshelf はオレンジ）で見分ける
 - `scripts/make-app-icon.swift` がコードで描き、`make icon` で書き出す。色付きのアイコン（`AppIcon`。16〜1024 px の PNG）と、同じ絵を 1 色にした印（`AppSymbol`。PDF のテンプレート画像。メニューバー・画面の端の帯・空の棚）の 2 つ
 - 1 色の印は、重なるところにすき間を空ける。カードは色付きのアイコンよりトレーから大きく出し（出ている分が少ないと、ただの箱に見える）、ピンはカードの内側に置く（上の辺からはみ出すと、人の頭に見える）
-- メニューバーだけのときに設定したアイコンは、Dock に出たときに使われず、macOS が覚えている仮のアイコンで出ることがあるので、Dock に出すたびに設定し直す（`AppIcon.applyToApp`）。`make run`・`make install` は、起動の前にアプリを Launch Services に登録し直す（`lsregister -f`）
+- メニューバーだけのときに設定したアイコンは、Dock に出たときに使われず、macOS が覚えている仮のアイコンで出ることがあるので、Dock に出すたびに設定し直す（`AppIcon.applyToApp`）。`make run`・`make install` は、`/Applications/Pinshelf Dev.app` に置いたあと、Launch Services に登録し直す（`lsregister -f`）
 
 ### ショートカットとログイン時に起動
 
 - 「クリップボードから棚へ」のショートカットは、Carbon の `RegisterEventHotKey` で登録する（アクセシビリティの権限は要らない。Pinshot と同じ作り）。⌘⇧V は多くのアプリで「スタイルを合わせて貼り付け」なので、選べるものから外した
 - ログイン時に起動は、`SMAppService` でアプリ自身をログイン項目に登録する（サンドボックスのままで使える）。利用者が選ぶまで登録しない（App Store の決まりに合わせる）
 - システム設定の「ログイン項目」でも変えられるので、状態は保存せず、設定画面を開くたびに macOS に問い合わせる
-- アプリの場所で登録するので、ふだん使うときは `make install` で `/Applications` に入れ、そのアプリで入れる（開発中の `build/` のアプリで入れると、そのアプリが起動する）
+- アプリの場所で登録するので、`/Applications/Pinshelf Dev.app`（`make run`・`make install` のどちらも、ここに置く）か、Releases から入れた `/Applications/Pinshelf.app` で入れる
 
 ### 署名
 
@@ -177,6 +177,11 @@ Makefile            ビルド・起動・テスト・インストール・配布
   | 更新の試験（`make update-test`） | `app.nexy.Pinshelf.updatetest` | Pinshelf UpdateTest | `nexy Dev Signing` |
   | テスト（Xcode から。`make test` は `swift test` で署名なし） | `app.nexy.Pinshelf.tests` | — | `nexy Dev Signing` |
 
+- 開発のビルドを置く場所は 1 つ: `make run`（Debug）も `make install`（Install）も、ビルドしたものを `/Applications/Pinshelf Dev.app` に写して置き換える（中身は最後に流したほう）。
+  ファイルの名前（PRODUCT_NAME）は `Pinshelf` のまま変えず、写すときに名前を付ける（フォルダの名前を変えても署名は崩れない）。
+  同じ ID のアプリが 2 か所にあると、どちらが開くか・システム設定の許可の一覧（ファイルの名前が出る）でどれが開発版かが分かりにくいので、
+  Launch Services には `Pinshelf Dev.app` だけを登録し、ビルドのフォルダの `Pinshelf.app` は登録を外す（`place_dev_app`）。
+  `make build`・`make readme-images` は、ビルドのフォルダのまま使う（起動しない・画面に出さないため）
 - ビルドの設定は `project.yml` の 3 つ。Debug（`make build`・`make run`）、Install（`make install`。Release と同じ最適化・Hardened Runtime で、ID・名前・証明書・空の公開鍵は Debug と同じ。YAML のアンカーで Debug と共有する）、Release（`make dist`）
 - 開発のビルド・アイコンや README の画像を作る道具も、開発用の証明書で署名する。証明書がなければ止まって `make cert` を案内し、`ADHOC=1` を付けたときだけアドホック署名にする（`1` だけを受け付ける。配る版には効かない）。`make build`・`make install` は、ビルドのあとに想定の署名になったかを `codesign -dvv` で確かめる（開発用の証明書は人ごとに違うので、名前で見る）
 - 配る版用の証明書と、更新ファイルの署名の鍵（Sparkle・アカウント名 `nexy-release`）は、作者の Mac の鍵付きのキーチェーン（金庫。`~/Library/Keychains/nexy-release.keychain-db`）に入れる。金庫はふだん閉まっていて、検索リストにも入れない（閉まった金庫をほかのプログラムが探すと、パスワードの画面が出るため）。`make dist`・`make publish` は `scripts/vault.sh` を通して、その場でパスワードを聞いて開け、開けている間だけ検索リストに入れ（Xcode は、検索リストにない箱の証明書を `--keychain` を渡しても見つけられない。2026-11-27 に確かめた）、終わったら（失敗や control + C でも）閉めて検索リストを戻す。AI の作業環境（ターミナルのないところ）からは開けない
