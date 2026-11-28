@@ -184,7 +184,7 @@ Makefile            ビルド・起動・テスト・インストール・配布
   `make build`・`make readme-images` は、ビルドのフォルダのまま使う（起動しない・画面に出さないため）
 - ビルドの設定は `project.yml` の 3 つ。Debug（`make build`・`make run`）、Install（`make install`。Release と同じ最適化・Hardened Runtime で、ID・名前・証明書・空の公開鍵は Debug と同じ。YAML のアンカーで Debug と共有する）、Release（`make dist`）
 - 開発のビルド・アイコンや README の画像を作る道具も、開発用の証明書で署名する。証明書がなければ止まって `make cert` を案内し、`ADHOC=1` を付けたときだけアドホック署名にする（`1` だけを受け付ける。配る版には効かない）。`make build`・`make install` は、ビルドのあとに想定の署名になったかを `codesign -dvv` で確かめる（開発用の証明書は人ごとに違うので、名前で見る）
-- 配る版用の証明書と、更新ファイルの署名の鍵（Sparkle・アカウント名 `nexy-release`）は、作者の Mac の鍵付きのキーチェーン（金庫。`~/Library/Keychains/nexy-release.keychain-db`）に入れる。金庫はふだん閉まっていて、検索リストにも入れない（閉まった金庫をほかのプログラムが探すと、パスワードの画面が出るため）。`make dist`・`make publish` は `scripts/vault.sh` を通して、その場でパスワードを聞いて開け、開けている間だけ検索リストに入れ（Xcode は、検索リストにない箱の証明書を `--keychain` を渡しても見つけられない。2026-11-27 に確かめた）、終わったら（失敗や control + C でも）閉めて検索リストを戻す。AI の作業環境（ターミナルのないところ）からは開けない
+- 配る版用の証明書と、更新ファイルの署名の鍵（Sparkle・アカウント名 `nexy-release`）は、作者の Mac の鍵付きのキーチェーン（金庫。`~/Library/Keychains/nexy-release.keychain-db`）に入れる。金庫はふだん閉まっていて、検索リストにも入れない（閉まった金庫をほかのプログラムが探すと、パスワードの画面が出るため）。`make dist`・`make publish` は `scripts/vault.sh` を通して、その場でパスワードを聞いて開け、開けている間だけ検索リストに入れ（Xcode は、検索リストにない箱の証明書を `--keychain` を渡しても見つけられない。2026-11-27 に確かめた）、終わったら（失敗や control + C でも）閉めて検索リストを戻す。パスワードを打てるターミナルから流したときだけ開け、AI の作業環境のようにターミナルのないところ（標準入力が端末でないとき）からは開けない
 - 証明書は名前ではなく指紋（SHA-1）で確かめる。`make dist` は、署名の前に金庫の証明書の指紋が `project.yml` の Release の `CODE_SIGN_IDENTITY`（Xcode もこの指紋で証明書を選ぶ）と合うか、署名のあとにアプリがその証明書で署名されたかを確かめる（`scripts/signing-check.sh`）
 - Debug ではアプリのコードを `Pinshelf.debug.dylib` に分けて読み込むので、自前の証明書でも読み込めるよう、Debug だけ Hardened Runtime を切っている
 - PinshelfCore は、埋め込むフレームワークにすると自前の証明書で署名したときに読み込みを断られることがあるので、静的ライブラリにしている

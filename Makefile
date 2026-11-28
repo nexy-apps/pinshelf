@@ -264,8 +264,9 @@ uninstall: stop
 	rm -rf "$(DEV_APP)"
 
 # テストを動かす（アプリは起動しない。PinshelfCore の swift test で流すので、署名は要らない）。
-# AI の作業環境（砂場）では、swift test がそのままでは動かないので、
-# 砂場の中で動く形（--disable-sandbox・モジュールのキャッシュの場所）で流す（git hooks から流れるときも同じ）
+# AI の作業環境（砂場）では swift test がそのままでは動かないので、どこで流すときも、砂場の中で動く形
+# （--disable-sandbox・モジュールのキャッシュの場所）で流す（git hooks から流れるときも同じ）。
+# PinshelfCore はほかのパッケージに頼らないので、ふだんのターミナルで付けても結果は変わらない
 SWIFT_TEST_FLAGS ?= --disable-sandbox
 export CLANG_MODULE_CACHE_PATH ?= $(or $(TMPDIR),/tmp)/clang-module-cache
 test:
